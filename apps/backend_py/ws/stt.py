@@ -18,7 +18,7 @@ from config import get_settings
 router = APIRouter()
 settings = get_settings()
 
-_DG_URL = "wss://api.deepgram.com/v1/listen?model=nova-2&smart_format=true"
+_DG_URL = "wss://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&endpointing=300&vad_events=true"
 
 
 @router.websocket("/api/v1/stt")

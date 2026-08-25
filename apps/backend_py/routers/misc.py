@@ -166,7 +166,7 @@ async def tts(request: Request):
     body = await request.json()
     text = body.get("text", "")
 
-    if not isinstance(text, str) or len(text) < 1 or len(text) > 500:
+    if not isinstance(text, str) or len(text) < 1 or len(text) > 3000:
         raise HTTPException(status_code=400, detail="Invalid request body")
 
     try:

@@ -72,19 +72,15 @@ export function Interview() {
 
       const audio = new Audio(url);
       audioRef.current = audio;
-      audio.onended = () => {
+      const finish = () => {
         setAiLevel(0);
         processingRef.current = false;
         URL.revokeObjectURL(url);
         audioRef.current = null;
       };
-      audio.onerror = () => {
-        setAiLevel(0);
-        processingRef.current = false;
-        URL.revokeObjectURL(url);
-        audioRef.current = null;
-      };
-      audio.play();
+      audio.onended = finish;
+      audio.onerror = finish;
+      audio.play().catch(finish);
     } catch {
       setAiLevel(0);
       processingRef.current = false;
@@ -128,7 +124,9 @@ export function Interview() {
               recorderRef.current = mediaRecorder;
               mediaRecorder.start(250);
               mediaRecorder.addEventListener("dataavailable", (event) => {
-                if (dgWs.readyState === WebSocket.OPEN) dgWs.send(event.data);
+                if (dgWs.readyState === WebSocket.OPEN && event.data.size > 0) {
+                  dgWs.send(event.data);
+                }
               });
             }
           } catch (e) {
@@ -141,11 +139,15 @@ export function Interview() {
             const text = await readMessageData(message);
             const received = JSON.parse(text);
             const transcript = received.channel?.alternatives[0]?.transcript;
-            if (transcript && received.speech_final && !processingRef.current) {
-              processingRef.current = true;
-              backendWsRef.current?.send(
-                JSON.stringify({ type: "user_message", text: transcript }),
-              );
+            const isFinished = received.speech_final || received.is_final;
+            if (transcript && isFinished && !processingRef.current) {
+              const clean = transcript.trim();
+              if (clean.length > 0) {
+                processingRef.current = true;
+                backendWsRef.current?.send(
+                  JSON.stringify({ type: "user_message", text: clean }),
+                );
+              }
             }
           } catch (e) {
             console.error("STT message error:", e);
