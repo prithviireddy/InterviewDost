@@ -7,8 +7,11 @@ Routes (all prefixed with /api/v1 in main.py):
   POST /auth/logout           → delete session by Bearer token
   GET  /auth/me               → return current user info
 """
+import logging
 import secrets
 import urllib.parse
+
+logger = logging.getLogger(__name__)
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -146,7 +149,9 @@ async def github_callback(
         await db.commit()
         await db.refresh(session)
 
-    return RedirectResponse(url=f"{settings.frontend_url}?token={session.token}")
+    redirect_url = f"{settings.frontend_url}?token={session.token}"
+    logger.info("OAuth complete — redirecting to: %s", redirect_url)
+    return RedirectResponse(url=redirect_url)
 
 
 @router.post("/logout")
