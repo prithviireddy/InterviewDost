@@ -63,7 +63,7 @@ async def google_login():
     }
     url = f"{_GOOGLE_AUTH_URL}?{urllib.parse.urlencode(params)}"
 
-    resp = RedirectResponse(url=url)
+    resp = RedirectResponse(url=url, status_code=302)
     resp.set_cookie(
         "oauth_state",
         state,
@@ -90,9 +90,10 @@ async def google_callback(
     """
     # Handle user-denied consent
     if error:
-        logger.warning("Google OAuth error: %s", error)
+        logger.warning("Google OAuth error from provider: %s", error)
         return RedirectResponse(
-            url=f"{settings.frontend_url}/login?error=google_denied"
+            url=f"{settings.frontend_url}/login?error=google_denied",
+            status_code=302,
         )
 
     if not code:
@@ -101,6 +102,7 @@ async def google_callback(
     # Optional state validation
     cookie_state = request.cookies.get("oauth_state")
     if cookie_state and state != cookie_state:
+        logger.warning("State mismatch in Google callback: cookie=%s state=%s", cookie_state, state)
         raise HTTPException(status_code=400, detail="Invalid state parameter")
 
     redirect_uri = f"{settings.backend_url}/api/v1/auth/google/callback"
@@ -116,12 +118,14 @@ async def google_callback(
                 "redirect_uri": redirect_uri,
                 "grant_type": "authorization_code",
             },
+            headers={"Accept": "application/json"},
         )
 
     if not token_resp.is_success:
         logger.error("Google token exchange failed: %s", token_resp.text)
         return RedirectResponse(
-            url=f"{settings.frontend_url}/login?error=google_auth_failed"
+            url=f"{settings.frontend_url}/login?error=google_auth_failed",
+            status_code=302,
         )
 
     token_data = token_resp.json()
@@ -129,7 +133,8 @@ async def google_callback(
     if not access_token:
         logger.error("No access_token in Google response: %s", token_data)
         return RedirectResponse(
-            url=f"{settings.frontend_url}/login?error=google_auth_failed"
+            url=f"{settings.frontend_url}/login?error=google_auth_failed",
+            status_code=302,
         )
 
     # Fetch Google user profile
@@ -142,29 +147,38 @@ async def google_callback(
     if not user_resp.is_success:
         logger.error("Google userinfo fetch failed: %s", user_resp.text)
         return RedirectResponse(
-            url=f"{settings.frontend_url}/login?error=google_api_failed"
+            url=f"{settings.frontend_url}/login?error=google_api_failed",
+            status_code=302,
         )
 
     guser = user_resp.json()
     google_id = str(guser.get("id", ""))
     email = str(guser.get("email", ""))
-    name = str(guser.get("name") or guser.get("login") or email.split("@")[0])[:100]
+    name = str(guser.get("name") or guser.get("given_name") or email.split("@")[0])[:100]
     avatar_url = str(guser.get("picture", "") or "")[:500] or None
 
     if not google_id or not email:
         logger.error("Invalid Google user response: %s", guser)
         return RedirectResponse(
-            url=f"{settings.frontend_url}/login?error=invalid_google_response"
+            url=f"{settings.frontend_url}/login?error=invalid_google_response",
+            status_code=302,
         )
 
     # Upsert user + create session in a single transaction
     async with AsyncSessionLocal() as db:
         result = await db.execute(
-            select(User).where(User.google_id == google_id)
+            select(User).where((User.google_id == google_id) | (User.email == email))
         )
         user = result.scalar_one_or_none()
 
-        if not user:
+        if user:
+            user.google_id = google_id
+            user.email = email
+            if avatar_url:
+                user.avatar_url = avatar_url
+            if name:
+                user.username = name
+        else:
             user = User(
                 google_id=google_id,
                 email=email,
@@ -184,9 +198,10 @@ async def google_callback(
         await db.commit()
         await db.refresh(session)
 
-    redirect_url = f"{settings.frontend_url}?token={session.token}"
+    # Explicit /?token= ensures Vercel and all browsers parse the path as /
+    redirect_url = f"{settings.frontend_url}/?token={session.token}"
     logger.info("Google OAuth complete — redirecting to: %s", redirect_url)
-    return RedirectResponse(url=redirect_url)
+    return RedirectResponse(url=redirect_url, status_code=302)
 
 
 @router.post("/logout")
