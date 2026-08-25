@@ -4,7 +4,6 @@ All required variables are validated at startup; missing ones raise a clear erro
 """
 from functools import lru_cache
 
-from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,12 +14,12 @@ class Settings(BaseSettings):
     database_url: str
     groq_api_key: str
     deepgram_api_key: str
-    github_client_id: str
-    github_client_secret: str
+    google_client_id: str
+    google_client_secret: str
 
     # ── Optional with sensible defaults ────────────────────────────────────────
     groq_model: str = "openai/gpt-oss-120b"
-    frontend_url: str = "https://interview-dost-wine.vercel.app"
+    frontend_url: str = "https://frontend-bice-one-8o0ryl9h02.vercel.app"
     backend_url: str = "http://localhost:8000"
     port: int = 8000
     app_env: str = "development"
@@ -28,12 +27,6 @@ class Settings(BaseSettings):
     # ── Payments (optional — leave blank to disable) ───────────────────────────
     razorpay_key_id: str = ""
     razorpay_key_secret: str = ""
-
-    @field_validator("frontend_url", "backend_url", mode="before")
-    @classmethod
-    def strip_urls(cls, v: str) -> str:
-        """Strip whitespace/newlines that env var editors sometimes add."""
-        return str(v).strip().rstrip("/")
 
     @property
     def is_production(self) -> bool:

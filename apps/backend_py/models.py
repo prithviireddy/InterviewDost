@@ -59,7 +59,8 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    github_id: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    google_id: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    email: Mapped[str] = mapped_column(String(254), unique=True, nullable=False)
     username: Mapped[str] = mapped_column(String(100), nullable=False)
     avatar_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     credits: Mapped[int] = mapped_column(Integer, default=50, nullable=False)

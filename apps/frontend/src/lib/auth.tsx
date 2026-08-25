@@ -103,7 +103,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   function login() {
-    window.location.href = `${BACKEND_URL}/api/v1/auth/github`;
+    window.location.href = `${BACKEND_URL}/api/v1/auth/google`;
   }
 
   function logout() {
