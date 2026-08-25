@@ -59,10 +59,11 @@ _async_url, _connect_args = _prepare_async_url(settings.database_url)
 engine = create_async_engine(
     _async_url,
     connect_args=_connect_args,
-    pool_size=5,
-    max_overflow=2,
+    pool_size=10,
+    max_overflow=5,
     pool_timeout=30,
-    pool_recycle=3600,
+    pool_recycle=60,
+    pool_pre_ping=True,
     echo=not settings.is_production,
 )
 

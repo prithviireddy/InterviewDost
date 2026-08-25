@@ -55,22 +55,19 @@ async def interview_ws(
     token: str | None = Query(None),
     interviewId: str | None = Query(None),
 ):
-    # We manage the DB session manually because the connection is long-lived.
+    # ── 1. Validate auth & interview ownership with a clean scoped session ──
     async with AsyncSessionLocal() as db:
-        # ── Authentication ──────────────────────────────────────────────────
         user = await _auth(token, db)
         if not user:
             logger.warning("[ws/interview] Auth failed for token: %s", token[:10] if token else "None")
             await websocket.close(code=4001)
             return
 
-        # ── Validate interviewId ────────────────────────────────────────────
         if not interviewId or len(interviewId) > 100 or not _ID_RE.match(interviewId):
             logger.warning("[ws/interview] Invalid interviewId format: %s", interviewId)
             await websocket.close(code=4000)
             return
 
-        # ── Authorise interview ownership ───────────────────────────────────
         result = await db.execute(
             select(Interview)
             .where(Interview.id == interviewId)
@@ -82,62 +79,68 @@ async def interview_ws(
             await websocket.close(code=4001)
             return
 
-        await websocket.accept()
-        logger.info("[ws/interview] Client connected for interview %s (user: %s)", interviewId, user.username)
+        has_conversations = len(interview.conversations) > 0
+        username = user.username
 
-        # ── Send greeting if this is a fresh interview ──────────────────────
-        conversations = sorted(interview.conversations, key=lambda m: m.created_at)
-        if not conversations:
-            try:
-                from services.groq import get_chat_completion  # lazy import
+    await websocket.accept()
+    logger.info("[ws/interview] Client connected for interview %s (user: %s)", interviewId, username)
+
+    # ── 2. Send greeting if this is a fresh interview ───────────────────────
+    if not has_conversations:
+        try:
+            async with AsyncSessionLocal() as db:
+                from services.groq import get_chat_completion
                 logger.info("[ws/interview] Generating initial greeting for %s...", interviewId)
                 greeting = await get_chat_completion(interviewId, db)
                 await websocket.send_text(json.dumps({"type": "ai_message", "text": greeting}))
                 logger.info("[ws/interview] Sent greeting (%d chars) to client", len(greeting))
-            except Exception as exc:
-                logger.error("[ws/interview] Greeting error: %s", exc)
+        except Exception as exc:
+            logger.error("[ws/interview] Greeting error: %s", exc)
+            await websocket.send_text(
+                json.dumps({"type": "error", "message": "Failed to start interview"})
+            )
+
+    # ── 3. Message loop (opens fresh DB session per message) ────────────────
+    try:
+        while True:
+            raw_data = await websocket.receive_text()
+
+            try:
+                payload = json.loads(raw_data)
+            except json.JSONDecodeError:
                 await websocket.send_text(
-                    json.dumps({"type": "error", "message": "Failed to start interview"})
+                    json.dumps({"type": "error", "message": "Invalid JSON"})
                 )
+                continue
 
-        # ── Message loop ────────────────────────────────────────────────────
-        try:
-            while True:
-                raw_data = await websocket.receive_text()
+            if (
+                payload.get("type") != "user_message"
+                or not payload.get("text")
+                or not isinstance(payload.get("text"), str)
+            ):
+                await websocket.send_text(
+                    json.dumps({"type": "error", "message": "Invalid message format"})
+                )
+                continue
 
-                try:
-                    payload = json.loads(raw_data)
-                except json.JSONDecodeError:
-                    await websocket.send_text(
-                        json.dumps({"type": "error", "message": "Invalid JSON"})
-                    )
-                    continue
+            sanitized = _HTML_RE.sub("", payload["text"])[:2000]
+            logger.info("[ws/interview] Received user speech: %r", sanitized)
 
-                if (
-                    payload.get("type") != "user_message"
-                    or not payload.get("text")
-                    or not isinstance(payload.get("text"), str)
-                ):
-                    await websocket.send_text(
-                        json.dumps({"type": "error", "message": "Invalid message format"})
-                    )
-                    continue
-
-                sanitized = _HTML_RE.sub("", payload["text"])[:2000]
-                logger.info("[ws/interview] Received user speech: %r", sanitized)
-
+            async with AsyncSessionLocal() as db:
                 # Persist user message
                 db.add(Message(
                     interview_id=interviewId,
                     type=MessageType.User,
                     message=sanitized,
                 ))
-                await db.commit()
 
                 # Transition Pre → InProgress on first user message
-                if interview.status == InterviewStatus.Pre:
-                    interview.status = InterviewStatus.InProgress
-                    await db.commit()
+                itv_res = await db.execute(select(Interview).where(Interview.id == interviewId))
+                itv = itv_res.scalar_one_or_none()
+                if itv and itv.status == InterviewStatus.Pre:
+                    itv.status = InterviewStatus.InProgress
+
+                await db.commit()
 
                 try:
                     from services.groq import get_chat_completion
@@ -151,7 +154,7 @@ async def interview_ws(
                         json.dumps({"type": "error", "message": "Failed to process message"})
                     )
 
-        except WebSocketDisconnect:
-            logger.info("[ws/interview] WebSocket disconnected for interview %s", interviewId)
-        except Exception as exc:
-            logger.error("[ws/interview] Unexpected error: %s", exc)
+    except WebSocketDisconnect:
+        logger.info("[ws/interview] WebSocket disconnected for interview %s", interviewId)
+    except Exception as exc:
+        logger.error("[ws/interview] Unexpected error: %s", exc)
