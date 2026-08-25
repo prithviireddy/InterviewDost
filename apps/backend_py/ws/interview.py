@@ -11,6 +11,7 @@ Protocol (JSON text frames):
                    { "type": "error",         "message": "..." }
 """
 import json
+import logging
 import re
 from datetime import datetime, timezone
 
@@ -21,6 +22,7 @@ from sqlalchemy.orm import selectinload
 from database import AsyncSessionLocal
 from models import Interview, InterviewStatus, Message, MessageType, Session as DBSession
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _ID_RE = re.compile(r"^[a-zA-Z0-9-]+$")
@@ -58,11 +60,13 @@ async def interview_ws(
         # ── Authentication ──────────────────────────────────────────────────
         user = await _auth(token, db)
         if not user:
+            logger.warning("[ws/interview] Auth failed for token: %s", token[:10] if token else "None")
             await websocket.close(code=4001)
             return
 
         # ── Validate interviewId ────────────────────────────────────────────
         if not interviewId or len(interviewId) > 100 or not _ID_RE.match(interviewId):
+            logger.warning("[ws/interview] Invalid interviewId format: %s", interviewId)
             await websocket.close(code=4000)
             return
 
@@ -74,20 +78,24 @@ async def interview_ws(
         )
         interview = result.scalar_one_or_none()
         if not interview or interview.user_id != user.id:
+            logger.warning("[ws/interview] User %s unauthorized for interview %s", user.id, interviewId)
             await websocket.close(code=4001)
             return
 
         await websocket.accept()
+        logger.info("[ws/interview] Client connected for interview %s (user: %s)", interviewId, user.username)
 
         # ── Send greeting if this is a fresh interview ──────────────────────
         conversations = sorted(interview.conversations, key=lambda m: m.created_at)
         if not conversations:
             try:
                 from services.groq import get_chat_completion  # lazy import
+                logger.info("[ws/interview] Generating initial greeting for %s...", interviewId)
                 greeting = await get_chat_completion(interviewId, db)
                 await websocket.send_text(json.dumps({"type": "ai_message", "text": greeting}))
+                logger.info("[ws/interview] Sent greeting (%d chars) to client", len(greeting))
             except Exception as exc:
-                print(f"[ws/interview] greeting error: {exc}")
+                logger.error("[ws/interview] Greeting error: %s", exc)
                 await websocket.send_text(
                     json.dumps({"type": "error", "message": "Failed to start interview"})
                 )
@@ -116,6 +124,7 @@ async def interview_ws(
                     continue
 
                 sanitized = _HTML_RE.sub("", payload["text"])[:2000]
+                logger.info("[ws/interview] Received user speech: %r", sanitized)
 
                 # Persist user message
                 db.add(Message(
@@ -132,15 +141,17 @@ async def interview_ws(
 
                 try:
                     from services.groq import get_chat_completion
+                    logger.info("[ws/interview] Calling Groq for next question...")
                     ai_text = await get_chat_completion(interviewId, db)
+                    logger.info("[ws/interview] Groq responded: %r", ai_text[:120])
                     await websocket.send_text(json.dumps({"type": "ai_message", "text": ai_text}))
                 except Exception as exc:
-                    print(f"[ws/interview] groq error: {exc}")
+                    logger.error("[ws/interview] Groq error: %s", exc)
                     await websocket.send_text(
                         json.dumps({"type": "error", "message": "Failed to process message"})
                     )
 
         except WebSocketDisconnect:
-            pass
+            logger.info("[ws/interview] WebSocket disconnected for interview %s", interviewId)
         except Exception as exc:
-            print(f"[ws/interview] unexpected error: {exc}")
+            logger.error("[ws/interview] Unexpected error: %s", exc)
