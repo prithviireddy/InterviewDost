@@ -35,8 +35,15 @@ limiter = Limiter(
 # ── Lifespan ───────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger("startup")
+    logger.info("=== SETTINGS CHECK ===")
+    logger.info("FRONTEND_URL = %r", settings.frontend_url)
+    logger.info("BACKEND_URL  = %r", settings.backend_url)
+    logger.info("APP_ENV      = %r", settings.app_env)
+    logger.info("======================")
     yield
-    # Gracefully dispose of the connection pool on shutdown
     await engine.dispose()
 
 
