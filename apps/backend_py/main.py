@@ -36,7 +36,8 @@ limiter = Limiter(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     import logging
-    logging.basicConfig(level=logging.INFO)
+    import sys
+    logging.basicConfig(level=logging.INFO, stream=sys.stdout, force=True)
     logger = logging.getLogger("startup")
     logger.info("=== SETTINGS CHECK ===")
     logger.info("FRONTEND_URL = %r", settings.frontend_url)
