@@ -25,12 +25,14 @@ _DG_URL = "wss://api.deepgram.com/v1/listen?model=nova-2&smart_format=true"
 async def stt_ws(websocket: WebSocket):
     await websocket.accept()
 
+    headers = {"Authorization": f"Token {settings.deepgram_api_key}"}
     try:
-        async with websockets.connect(
-            _DG_URL,
-            extra_headers={"Authorization": f"Token {settings.deepgram_api_key}"},
-            open_timeout=10,
-        ) as dg_ws:
+        try:
+            connect_ctx = websockets.connect(_DG_URL, additional_headers=headers, open_timeout=10)
+        except TypeError:
+            connect_ctx = websockets.connect(_DG_URL, extra_headers=headers, open_timeout=10)
+
+        async with connect_ctx as dg_ws:
             # Notify client that the Deepgram connection is ready
             await websocket.send_text(json.dumps({"type": "connected"}))
 

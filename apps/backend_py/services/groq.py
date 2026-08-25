@@ -20,7 +20,6 @@ from models import Interview, Message, MessageType
 settings = get_settings()
 
 _GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-_MODEL = "llama-3.3-70b-versatile"
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
@@ -57,19 +56,22 @@ def _extract_json(text: str) -> Any:
 async def get_chat_completion(interview_id: str, db: AsyncSession) -> str:
     """
     Build conversation history, call Groq, persist the AI message, and return
-    the text content.  The caller is responsible for committing the session if
-    needed; this function flushes but does not commit.
+    the text content.
     """
     result = await db.execute(
-        select(Interview)
-        .where(Interview.id == interview_id)
-        .options(selectinload(Interview.conversations))
+        select(Interview).where(Interview.id == interview_id)
     )
     interview = result.scalar_one_or_none()
     if not interview:
         raise ValueError("Interview not found")
 
-    conversations = sorted(interview.conversations, key=lambda m: m.created_at)
+    # Fetch all previous messages directly from DB to avoid session caching issues
+    msg_result = await db.execute(
+        select(Message)
+        .where(Message.interview_id == interview_id)
+        .order_by(Message.created_at.asc())
+    )
+    conversations = msg_result.scalars().all()
     context_block = _build_context(interview)
 
     system_content = (
@@ -98,7 +100,12 @@ async def get_chat_completion(interview_id: str, db: AsyncSession) -> str:
         resp = await client.post(
             _GROQ_URL,
             headers=_groq_headers(),
-            json={"model": _MODEL, "messages": messages, "temperature": 0.7, "max_tokens": 2048},
+            json={
+                "model": settings.groq_model,
+                "messages": messages,
+                "temperature": 0.7,
+                "max_tokens": 2048,
+            },
         )
 
     if not resp.is_success:
@@ -150,7 +157,7 @@ async def calculate_result(
             _GROQ_URL,
             headers=_groq_headers(),
             json={
-                "model": _MODEL,
+                "model": settings.groq_model,
                 "messages": [{"role": "system", "content": prompt}],
                 "temperature": 0.3,
                 "max_tokens": 1024,
@@ -199,7 +206,7 @@ async def run_ats_check(resume_text: str, job_description: str) -> dict:
             _GROQ_URL,
             headers=_groq_headers(),
             json={
-                "model": _MODEL,
+                "model": settings.groq_model,
                 "messages": [
                     {
                         "role": "system",

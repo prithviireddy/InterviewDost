@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     github_client_secret: str
 
     # ── Optional with sensible defaults ────────────────────────────────────────
+    groq_model: str = "openai/gpt-oss-120b"
     frontend_url: str = "https://frontend-bice-one-8o0ryl9h02.vercel.app"
     backend_url: str = "http://localhost:8000"
     port: int = 8000

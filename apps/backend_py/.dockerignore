@@ -1,0 +1,34 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environment — never bake this in
+.venv/
+venv/
+env/
+
+# Secrets — injected at runtime via env vars
+.env
+.env.*
+!.env.example
+
+# Development & IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test artifacts
+.pytest_cache/
+coverage.xml
+htmlcov/
+
+# Docker build artifacts
+Dockerfile
+.dockerignore
+
+# Alembic output logs
+alembic_out.txt
