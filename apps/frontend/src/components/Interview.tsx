@@ -38,8 +38,8 @@ async function readMessageData(event: MessageEvent): Promise<string> {
 export function Interview() {
   const { interviewId } = useParams();
   const navigate = useNavigate();
-
   const { token } = useAuth();
+
   const [status, setStatus] = useState<Status>("connecting");
   const [aiLevel, setAiLevel] = useState(0);
   const [userLevel, setUserLevel] = useState(0);
@@ -52,6 +52,7 @@ export function Interview() {
   const rafRef = useRef<number | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const processingRef = useRef(false);
+  const isSetupRef = useRef(false);
 
   const speakText = useCallback(async (text: string) => {
     processingRef.current = true;
@@ -87,15 +88,19 @@ export function Interview() {
     }
   }, []);
 
-  useEffect(() => {
-    if (!token) return;
+  const speakTextRef = useRef(speakText);
+  speakTextRef.current = speakText;
 
-    let cancelled = false;
+  useEffect(() => {
+    if (!token || !interviewId || isSetupRef.current) return;
+    isSetupRef.current = true;
+
+    let unmounted = false;
 
     (async () => {
       try {
         const ms = await navigator.mediaDevices.getUserMedia({ audio: true });
-        if (cancelled) {
+        if (unmounted) {
           ms.getTracks().forEach((t) => t.stop());
           return;
         }
@@ -105,17 +110,16 @@ export function Interview() {
         audioCtxRef.current = audioCtx;
         const userMeter = createLevelMeter(audioCtx, ms);
 
+        // Connect STT WebSocket
         const wsUrl = BACKEND_URL.replace(/^http/, "ws");
         const dgWs = new WebSocket(`${wsUrl}/api/v1/stt`);
         deepgramWsRef.current = dgWs;
 
-        let sttReady = false;
         dgWs.onmessage = async (firstMsg) => {
           try {
             const text = await readMessageData(firstMsg);
             const parsed = JSON.parse(text);
             if (parsed.type === "connected") {
-              sttReady = true;
               dgWs.onmessage = handleSttMessage;
 
               const mediaRecorder = new MediaRecorder(ms, {
@@ -154,9 +158,10 @@ export function Interview() {
           }
         }
 
+        // Connect Backend WebSocket
         const backendWsUrl = BACKEND_URL.replace(/^http/, "ws");
         const bWs = new WebSocket(
-          `${backendWsUrl}/api/v1/ws?interviewId=${interviewId}&token=${encodeURIComponent(token ?? "")}`,
+          `${backendWsUrl}/api/v1/ws?interviewId=${interviewId}&token=${encodeURIComponent(token)}`,
         );
         backendWsRef.current = bWs;
 
@@ -165,7 +170,7 @@ export function Interview() {
             const text = await readMessageData(event);
             const msg = JSON.parse(text);
             if (msg.type === "ai_message" && msg.text) {
-              speakText(msg.text);
+              speakTextRef.current(msg.text);
             } else if (msg.type === "error") {
               processingRef.current = false;
             }
@@ -175,7 +180,7 @@ export function Interview() {
         };
 
         bWs.onopen = () => {
-          if (!cancelled) setStatus("live");
+          if (!unmounted) setStatus("live");
         };
 
         const tick = () => {
@@ -185,21 +190,23 @@ export function Interview() {
         rafRef.current = requestAnimationFrame(tick);
       } catch (e) {
         console.error("Mic access denied or unavailable:", e);
-        if (!cancelled) setStatus("ending");
+        if (!unmounted) setStatus("ending");
       }
     })();
 
     return () => {
-      cancelled = true;
+      unmounted = true;
       cleanup();
     };
-  }, [interviewId, speakText, token]);
+  }, [interviewId, token]);
 
   function cleanup() {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     audioRef.current?.pause();
     audioRef.current = null;
-    recorderRef.current?.state !== "inactive" && recorderRef.current?.stop();
+    if (recorderRef.current && recorderRef.current.state !== "inactive") {
+      recorderRef.current.stop();
+    }
     deepgramWsRef.current?.close();
     backendWsRef.current?.close();
     userStreamRef.current?.getTracks().forEach((t) => t.stop());
