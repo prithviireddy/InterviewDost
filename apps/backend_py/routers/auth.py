@@ -198,8 +198,9 @@ async def google_callback(
         await db.commit()
         await db.refresh(session)
 
-    # Explicit /?token= ensures Vercel and all browsers parse the path as /
-    redirect_url = f"{settings.frontend_url}/?token={session.token}"
+    # Explicitly sanitize and add /?token= to ensure valid HTTP redirect header
+    frontend_base = str(settings.frontend_url).strip().replace("\r", "").replace("\n", "").rstrip("/")
+    redirect_url = f"{frontend_base}/?token={session.token}"
     logger.info("Google OAuth complete — redirecting to: %s", redirect_url)
     return RedirectResponse(url=redirect_url, status_code=302)
 
