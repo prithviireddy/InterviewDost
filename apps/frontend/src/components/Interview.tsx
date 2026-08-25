@@ -5,27 +5,36 @@ import { Bot, Loader2, PhoneOff, User } from "lucide-react";
 import { Button } from "./ui/button";
 import { VoiceOrb } from "./VoiceOrb";
 import { useAuth } from "@/lib/auth";
+import { toast } from "sonner";
 
 type Status = "connecting" | "live" | "ending";
 
 function createLevelMeter(ctx: AudioContext, stream: MediaStream) {
-  const source = ctx.createMediaStreamSource(stream);
-  const analyser = ctx.createAnalyser();
-  analyser.fftSize = 512;
-  analyser.smoothingTimeConstant = 0.8;
-  source.connect(analyser);
-  const data = new Uint8Array(analyser.fftSize);
+  try {
+    const source = ctx.createMediaStreamSource(stream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+    analyser.smoothingTimeConstant = 0.8;
+    source.connect(analyser);
+    const data = new Uint8Array(analyser.fftSize);
 
-  return () => {
-    analyser.getByteTimeDomainData(data);
-    let sum = 0;
-    for (let i = 0; i < data.length; i++) {
-      const v = (data[i]! - 128) / 128;
-      sum += v * v;
-    }
-    const rms = Math.sqrt(sum / data.length);
-    return Math.min(1, rms * 3.2);
-  };
+    return () => {
+      try {
+        analyser.getByteTimeDomainData(data);
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) {
+          const v = (data[i]! - 128) / 128;
+          sum += v * v;
+        }
+        const rms = Math.sqrt(sum / data.length);
+        return Math.min(1, rms * 3.2);
+      } catch {
+        return 0;
+      }
+    };
+  } catch {
+    return () => 0;
+  }
 }
 
 async function readMessageData(event: MessageEvent): Promise<string> {
@@ -33,6 +42,18 @@ async function readMessageData(event: MessageEvent): Promise<string> {
   if (event.data instanceof Blob) return event.data.text();
   if (event.data instanceof ArrayBuffer) return new TextDecoder().decode(event.data);
   return String(event.data);
+}
+
+function createMediaRecorder(stream: MediaStream): MediaRecorder {
+  const mimeTypes = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"];
+  for (const mime of mimeTypes) {
+    if (MediaRecorder.isTypeSupported(mime)) {
+      try {
+        return new MediaRecorder(stream, { mimeType: mime });
+      } catch {}
+    }
+  }
+  return new MediaRecorder(stream);
 }
 
 export function Interview() {
@@ -106,9 +127,15 @@ export function Interview() {
         }
         userStreamRef.current = ms;
 
-        const audioCtx = new AudioContext();
-        audioCtxRef.current = audioCtx;
-        const userMeter = createLevelMeter(audioCtx, ms);
+        let audioCtx: AudioContext | null = null;
+        try {
+          audioCtx = new AudioContext();
+          audioCtxRef.current = audioCtx;
+        } catch (err) {
+          console.warn("Could not create AudioContext:", err);
+        }
+
+        const userMeter = audioCtx ? createLevelMeter(audioCtx, ms) : () => 0;
 
         // Connect STT WebSocket
         const wsUrl = BACKEND_URL.replace(/^http/, "ws");
@@ -122,16 +149,18 @@ export function Interview() {
             if (parsed.type === "connected") {
               dgWs.onmessage = handleSttMessage;
 
-              const mediaRecorder = new MediaRecorder(ms, {
-                mimeType: "audio/webm",
-              });
-              recorderRef.current = mediaRecorder;
-              mediaRecorder.start(250);
-              mediaRecorder.addEventListener("dataavailable", (event) => {
-                if (dgWs.readyState === WebSocket.OPEN && event.data.size > 0) {
-                  dgWs.send(event.data);
-                }
-              });
+              try {
+                const mediaRecorder = createMediaRecorder(ms);
+                recorderRef.current = mediaRecorder;
+                mediaRecorder.start(250);
+                mediaRecorder.addEventListener("dataavailable", (event) => {
+                  if (dgWs.readyState === WebSocket.OPEN && event.data.size > 0) {
+                    dgWs.send(event.data);
+                  }
+                });
+              } catch (recErr) {
+                console.error("MediaRecorder start error:", recErr);
+              }
             }
           } catch (e) {
             console.error("STT init error:", e);
@@ -183,6 +212,10 @@ export function Interview() {
           if (!unmounted) setStatus("live");
         };
 
+        bWs.onerror = (e) => {
+          console.error("Backend WS socket error:", e);
+        };
+
         const tick = () => {
           if (userMeter) setUserLevel(userMeter());
           rafRef.current = requestAnimationFrame(tick);
@@ -190,7 +223,7 @@ export function Interview() {
         rafRef.current = requestAnimationFrame(tick);
       } catch (e) {
         console.error("Mic access denied or unavailable:", e);
-        if (!unmounted) setStatus("ending");
+        toast.error("Microphone access is required for the interview.");
       }
     })();
 
@@ -205,10 +238,16 @@ export function Interview() {
     audioRef.current?.pause();
     audioRef.current = null;
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
-      recorderRef.current.stop();
+      try {
+        recorderRef.current.stop();
+      } catch {}
     }
-    deepgramWsRef.current?.close();
-    backendWsRef.current?.close();
+    try {
+      deepgramWsRef.current?.close();
+    } catch {}
+    try {
+      backendWsRef.current?.close();
+    } catch {}
     userStreamRef.current?.getTracks().forEach((t) => t.stop());
     audioCtxRef.current?.close().catch(() => {});
   }
