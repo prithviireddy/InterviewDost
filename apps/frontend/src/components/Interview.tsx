@@ -73,7 +73,6 @@ export function Interview() {
   const rafRef = useRef<number | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const processingRef = useRef(false);
-  const isSetupRef = useRef(false);
 
   const speakText = useCallback(async (text: string) => {
     processingRef.current = true;
@@ -113,15 +112,16 @@ export function Interview() {
   speakTextRef.current = speakText;
 
   useEffect(() => {
-    if (!token || !interviewId || isSetupRef.current) return;
-    isSetupRef.current = true;
+    if (!token || !interviewId) return;
 
-    let unmounted = false;
+    let active = true;
+    let silenceTimer: any = null;
+    let utteranceBuffer = "";
 
     (async () => {
       try {
         const ms = await navigator.mediaDevices.getUserMedia({ audio: true });
-        if (unmounted) {
+        if (!active) {
           ms.getTracks().forEach((t) => t.stop());
           return;
         }
@@ -132,15 +132,28 @@ export function Interview() {
           audioCtx = new AudioContext();
           audioCtxRef.current = audioCtx;
         } catch (err) {
-          console.warn("Could not create AudioContext:", err);
+          console.warn("AudioContext init error:", err);
         }
 
         const userMeter = audioCtx ? createLevelMeter(audioCtx, ms) : () => 0;
 
-        // Connect STT WebSocket
+        // 1. Connect STT WebSocket (Deepgram proxy)
         const wsUrl = BACKEND_URL.replace(/^http/, "ws");
         const dgWs = new WebSocket(`${wsUrl}/api/v1/stt`);
         deepgramWsRef.current = dgWs;
+
+        const sendBufferedUtterance = () => {
+          const toSend = utteranceBuffer.trim();
+          if (toSend.length > 0 && !processingRef.current) {
+            processingRef.current = true;
+            utteranceBuffer = "";
+            if (backendWsRef.current?.readyState === WebSocket.OPEN) {
+              backendWsRef.current.send(
+                JSON.stringify({ type: "user_message", text: toSend }),
+              );
+            }
+          }
+        };
 
         dgWs.onmessage = async (firstMsg) => {
           try {
@@ -172,22 +185,33 @@ export function Interview() {
             const text = await readMessageData(message);
             const received = JSON.parse(text);
             const transcript = received.channel?.alternatives[0]?.transcript;
-            const isFinished = received.speech_final || received.is_final;
-            if (transcript && isFinished && !processingRef.current) {
+
+            if (transcript && typeof transcript === "string") {
               const clean = transcript.trim();
               if (clean.length > 0) {
-                processingRef.current = true;
-                backendWsRef.current?.send(
-                  JSON.stringify({ type: "user_message", text: clean }),
-                );
+                if (received.is_final) {
+                  utteranceBuffer = (utteranceBuffer + " " + clean).trim();
+                }
+
+                // Reset silence fallback timer
+                if (silenceTimer) clearTimeout(silenceTimer);
+                silenceTimer = setTimeout(() => {
+                  sendBufferedUtterance();
+                }, 1400);
               }
+            }
+
+            // If Deepgram endpointing signals speech finished
+            if (received.speech_final) {
+              if (silenceTimer) clearTimeout(silenceTimer);
+              sendBufferedUtterance();
             }
           } catch (e) {
             console.error("STT message error:", e);
           }
         }
 
-        // Connect Backend WebSocket
+        // 2. Connect Backend WebSocket
         const backendWsUrl = BACKEND_URL.replace(/^http/, "ws");
         const bWs = new WebSocket(
           `${backendWsUrl}/api/v1/ws?interviewId=${interviewId}&token=${encodeURIComponent(token)}`,
@@ -209,11 +233,11 @@ export function Interview() {
         };
 
         bWs.onopen = () => {
-          if (!unmounted) setStatus("live");
+          if (active) setStatus("live");
         };
 
         bWs.onerror = (e) => {
-          console.error("Backend WS socket error:", e);
+          console.error("Backend WS error:", e);
         };
 
         const tick = () => {
@@ -228,7 +252,8 @@ export function Interview() {
     })();
 
     return () => {
-      unmounted = true;
+      active = false;
+      if (silenceTimer) clearTimeout(silenceTimer);
       cleanup();
     };
   }, [interviewId, token]);
