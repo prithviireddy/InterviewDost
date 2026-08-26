@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+
 from sqlalchemy.orm import DeclarativeBase
 
 from config import get_settings
@@ -21,21 +22,20 @@ settings = get_settings()
 
 
 def _prepare_async_url(url: str) -> tuple[str, dict]:
-    """
-    Convert a standard PostgreSQL connection URL for use with asyncpg.
+    """Convert a standard PostgreSQL connection URL for use with asyncpg.
 
     1. Swaps the scheme to postgresql+asyncpg://
     2. Strips params asyncpg doesn't understand: sslmode, channel_binding
     3. Returns (cleaned_url, connect_args) where connect_args carries an SSL
        context when the original URL requested SSL.
     """
-    # ── 1. Scheme swap ────────────────────────────────────────────────────────
+    #1. Scheme swap 
     for prefix in ("postgresql://", "postgres://"):
         if url.startswith(prefix):
             url = "postgresql+asyncpg://" + url[len(prefix):]
             break
 
-    # ── 2. Strip incompatible query params ────────────────────────────────────
+    #2. Strip incompatible query params 
     parsed = urlparse(url)
     params = parse_qs(parsed.query, keep_blank_values=True)
 
@@ -45,7 +45,7 @@ def _prepare_async_url(url: str) -> tuple[str, dict]:
     clean_query = urlencode({k: v[0] for k, v in params.items()})
     clean_url = urlunparse(parsed._replace(query=clean_query))
 
-    # ── 3. Build connect_args ─────────────────────────────────────────────────
+    #3. Build connect_args 
     connect_args: dict = {}
     if sslmode in ("require", "verify-ca", "verify-full", "prefer"):
         # Neon uses valid Let's Encrypt certs — standard SSL context works.
@@ -62,7 +62,7 @@ engine = create_async_engine(
     pool_size=10,
     max_overflow=5,
     pool_timeout=30,
-    pool_recycle=60,
+    pool_recycle=600,
     pool_pre_ping=True,
     echo=not settings.is_production,
 )

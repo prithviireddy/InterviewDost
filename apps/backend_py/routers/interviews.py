@@ -36,7 +36,7 @@ async def _deduct_credits(db: AsyncSession, user_id: str, amount: int) -> None:
     await db.commit()
 
 
-# ── Routes ────────────────────────────────────────────────────────────────────
+#  Routes
 
 @router.post("/pre-interview/github", status_code=201)
 async def pre_interview_github(request: Request, user: CurrentUser, db: DB):

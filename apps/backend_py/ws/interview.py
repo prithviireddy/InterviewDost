@@ -55,7 +55,7 @@ async def interview_ws(
     token: str | None = Query(None),
     interviewId: str | None = Query(None),
 ):
-    # ── 1. Validate auth & interview ownership with a clean scoped session ──
+    # 1. Validate auth & interview ownership with a clean scoped session 
     async with AsyncSessionLocal() as db:
         user = await _auth(token, db)
         if not user:
@@ -85,7 +85,7 @@ async def interview_ws(
     await websocket.accept()
     logger.info("[ws/interview] Client connected for interview %s (user: %s)", interviewId, username)
 
-    # ── 2. Send greeting if this is a fresh interview ───────────────────────
+    #  2. Send greeting if this is a fresh interview
     if not has_conversations:
         try:
             async with AsyncSessionLocal() as db:
@@ -100,7 +100,7 @@ async def interview_ws(
                 json.dumps({"type": "error", "message": "Failed to start interview"})
             )
 
-    # ── 3. Message loop (opens fresh DB session per message) ────────────────
+    #  3. Message loop (opens fresh DB session per message)
     try:
         while True:
             raw_data = await websocket.receive_text()

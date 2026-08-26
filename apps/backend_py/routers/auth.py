@@ -44,7 +44,7 @@ def _extract_bearer(request: Request) -> str | None:
     return None
 
 
-# ── Routes ────────────────────────────────────────────────────────────────────
+#  Routes
 
 @router.get("/google")
 async def google_login():

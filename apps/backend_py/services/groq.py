@@ -22,7 +22,7 @@ settings = get_settings()
 _GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 
-# ── Internal helpers ──────────────────────────────────────────────────────────
+# Internal helpers 
 
 def _groq_headers() -> dict:
     return {
@@ -51,7 +51,7 @@ def _extract_json(text: str) -> Any:
     return json.loads(cleaned)
 
 
-# ── Public API ────────────────────────────────────────────────────────────────
+# Public API
 
 async def get_chat_completion(interview_id: str, db: AsyncSession) -> str:
     """
@@ -85,7 +85,7 @@ async def get_chat_completion(interview_id: str, db: AsyncSession) -> str:
         "5. If the candidate gives a short or unclear answer, ask a friendly follow-up to help them elaborate.\n"
         "6. Do NOT repeat the same question if it wasn't answered. Instead, rephrase it gently.\n"
         "7. After the candidate answers, acknowledge their response briefly, then ask ONE follow-up or move to the next topic.\n"
-        "8. Ask 3-4 questions total, one at a time. After the last answer, thank them and wrap up."
+        "8. Ask 15 questions total, one at a time. After the last answer, thank them and wrap up."
     )
 
     messages = [{"role": "system", "content": system_content}] + [

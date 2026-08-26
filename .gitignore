@@ -37,10 +37,11 @@ yarn-error.log*
 .DS_Store
 *.pem
 
-backend
-.npmrc
-bun.lock
-cloudformation.yml
-docker-compose.yml
-package.json
-turbo.json
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+*.egg-info/

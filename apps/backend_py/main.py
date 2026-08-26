@@ -25,36 +25,33 @@ from ws.stt import router as ws_stt_router
 
 settings = get_settings()
 
-# ── Rate limiter ───────────────────────────────────────────────────────────────
+#  Rate limiter 
 limiter = Limiter(
     key_func=get_remote_address,
     default_limits=["100/15minutes"],
 )
 
 
-# ── Lifespan ───────────────────────────────────────────────────────────────────
+#  Lifespan 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     import logging
     import sys
     logging.basicConfig(level=logging.INFO, stream=sys.stdout, force=True)
     logger = logging.getLogger("startup")
-    logger.info("=== SETTINGS CHECK ===")
     logger.info("FRONTEND_URL = %r", settings.frontend_url)
     logger.info("BACKEND_URL  = %r", settings.backend_url)
     logger.info("APP_ENV      = %r", settings.app_env)
-    logger.info("======================")
     yield
     await engine.dispose()
 
 
-# ── App factory ────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="InterviewDost API",
     description="FastAPI / SQLAlchemy backend for InterviewDost.",
     version="2.0.0",
     lifespan=lifespan,
-    # Disable interactive docs in production
+    # disable docs in production
     docs_url="/docs" if not settings.is_production else None,
     redoc_url=None,
 )
@@ -94,7 +91,7 @@ app.include_router(ws_interview_router)
 app.include_router(ws_stt_router)
 
 
-# ── Error handlers ─────────────────────────────────────────────────────────────
+#  Error handlers 
 @app.exception_handler(404)
 async def not_found(_request: Request, _exc: Exception):
     return JSONResponse(status_code=404, content={"error": "Not found"})
@@ -106,7 +103,7 @@ async def global_error(_request: Request, exc: Exception):
     return JSONResponse(status_code=500, content={"error": "Internal server error"})
 
 
-# ── Dev entry point ────────────────────────────────────────────────────────────
+#  Dev entry point 
 if __name__ == "__main__":
     import uvicorn
 

@@ -25,7 +25,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from database import Base
 
 
-# ── Enums ─────────────────────────────────────────────────────────────────────
+# Enums 
 
 class MessageType(str, PyEnum):
     User = "User"
@@ -43,7 +43,7 @@ class InterviewStatus(str, PyEnum):
     Done = "Done"
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+#  Helpers 
 
 def _uuid() -> str:
     return str(uuid.uuid4())
@@ -53,7 +53,7 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-# ── Models ────────────────────────────────────────────────────────────────────
+#  Models 
 
 class User(Base):
     __tablename__ = "users"

@@ -41,7 +41,7 @@ _SKILL_PATTERNS: dict[str, re.Pattern] = {
 }
 
 
-# ── Routes ────────────────────────────────────────────────────────────────────
+#  Routes 
 
 @router.get("/ping")
 async def ping():
